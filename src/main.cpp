@@ -56,9 +56,6 @@ class CustomServo : public Servo {
 
       lastUpdate = now;
     }
-
-    void setAngle
-
 };
 
 int pinbut = 0;
