@@ -72,11 +72,11 @@ ControlMode readControlMode() {
     if (digitalRead(pinSpec1)) {
       return None;    // 11
     } else {
-      return MiniArm;    // 10
+      return Exo;    // 10
     }
   } else {
     if (digitalRead(pinSpec1)) {
-      return Exo;     // 01
+      return MiniArm;     // 01
     } else {
       return Gamepad; // 00
     }
@@ -133,7 +133,16 @@ void loop() {
 
   switch (mode) {
     case None:
-        Serial.println("No control method connected");
+        Serial.print("No control method connected ");
+        Serial.print(digitalRead(pinSpec0));
+        Serial.print(" / ");
+        Serial.print(digitalRead(pinSpec1));
+        Serial.print(" / ");
+        Serial.print(analogRead(A0));
+        Serial.print(" / ");
+        Serial.print(analogRead(A1));
+        Serial.print(" / ");
+        Serial.println(analogRead(A2));
         delay(500);
         return;
 
@@ -145,7 +154,7 @@ void loop() {
 
     case MiniArm:
         int potbase = constrain(
-          map(val0, 210, 900, 0, 180),
+          map(val0, 210, 900, 180, 0),
           0, 180
         );
         baseservo.write(potbase);
@@ -154,13 +163,13 @@ void loop() {
         //j1Servo.write(constrain(map(potj1, 775, 1023, 0, 180), 55, 135));
 
         int potj1 = constrain(
-          map(val1, 230, 640, 50, 172),
+          map(val1, 750, 360, 172, 50),
           62, 180
         );
         j1Servo.write(potj1);
 
         int potj2 = constrain(
-          map(val2, 40, 530, 140, 40),
+          map(val2, 495, 980, 140, 40),
           30, 150
         );
         j2Servo.write(potj2);
