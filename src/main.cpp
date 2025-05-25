@@ -83,6 +83,10 @@ ControlMode readControlMode() {
   }
 }
 
+const int debounceDelay = 50;
+bool lastButtonState = HIGH;
+bool gripOpen = true;
+unsigned long lastDebounceTime = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -93,7 +97,7 @@ void setup() {
   baseservo.attachAndInitialize(3);
   j1Servo.attachAndInitialize(5);
   j2Servo.attachAndInitialize(6);
-  gripperservo.attach(9, 625, 2500);
+  gripperservo.attach(9);
 
   j1Servo.angleLimits(55, 135);
   j2Servo.angleLimits(65, 130);
@@ -154,7 +158,7 @@ void loop() {
 
     case MiniArm:
         int potbase = constrain(
-          map(val0, 210, 900, 180, 0),
+          map(val0, 210, 900, 0, 180),
           0, 180
         );
         baseservo.write(potbase);
@@ -163,13 +167,13 @@ void loop() {
         //j1Servo.write(constrain(map(potj1, 775, 1023, 0, 180), 55, 135));
 
         int potj1 = constrain(
-          map(val1, 750, 360, 172, 50),
+          map(val1, 256, 560, 50, 172),
           62, 180
         );
         j1Servo.write(potj1);
 
         int potj2 = constrain(
-          map(val2, 495, 980, 140, 40),
+          map(val2, 40, 530, 140, 40),
           30, 150
         );
         j2Servo.write(potj2);
@@ -193,15 +197,24 @@ void loop() {
   Serial.print("  j2 = ");
   Serial.print(val2);
 
-  buttonstate = digitalRead(pinbut);
-  if (buttonstate == HIGH) 
+  int reading = digitalRead(pinbut);
+  if (reading != lastButtonState)
   {
-    gripperservo.write(0);  
-    Serial.println("  grip = OPEN");
+    lastDebounceTime = millis();
   }
-  else
+  if (millis() - lastDebounceTime > debounceDelay)
   {
-    gripperservo.write(180);
-    Serial.println("  grip = CLOSED");
-}
+    if(reading != gripOpen)
+    {
+      gripOpen = reading;
+    }
+if (gripOpen == HIGH) {
+      gripperservo.write(0);
+      Serial.println("  grip = OPEN");
+    } else {
+      gripperservo.write(180);
+      Serial.println("  grip = CLOSED");
+    }
+  }
+  lastButtonState = reading;
 }
