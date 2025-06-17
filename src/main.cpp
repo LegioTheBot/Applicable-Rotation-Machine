@@ -229,4 +229,5 @@ if (gripOpen == HIGH) {
     }
   }
   lastButtonState = reading;
+  delay(5);
 }
