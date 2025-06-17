@@ -4,7 +4,7 @@
 enum ControlMode : uint8_t {
   Gamepad,
   MiniArm,
-  Exo,
+  ArmApparatus,
   None
 };
 
@@ -28,7 +28,7 @@ class CustomServo : public Servo {
     }
 
     void attachAndInitialize(int pin) {
-      attach(pin);      
+      attach(pin);
       write((int)currentAngle);
     }
 
@@ -78,7 +78,7 @@ ControlMode readControlMode() {
     if (digitalRead(pinSpec1)) {
       return None;    // 11
     } else {
-      return Exo;    // 10
+      return ArmApparatus;    // 10
     }
   } else {
     if (digitalRead(pinSpec1)) {
@@ -111,6 +111,7 @@ void setup() {
 
 void loop() {
   ControlMode newMode = readControlMode();
+  newMode = ArmApparatus;
 
   if (mode != newMode) {
     mode = newMode;
@@ -119,15 +120,15 @@ void loop() {
       case Gamepad:
           Serial.println("Gamepad");
         break;
-  
+
       case MiniArm:
           Serial.println("Mini Arm");
         break;
- 
-      case Exo:
+
+      case ArmApparatus:
           Serial.println("Arm Apparatus");
         break;
-      
+
       case None:
           Serial.println("None");
         break;
@@ -191,11 +192,28 @@ void loop() {
         j2Servo.writeSafe(s2Val);
       break;
 
-    case Exo:
-        Serial.println("Arm Apparatus not yet implemented");
+    case ArmApparatus:
+        /*int exoshoulder0 = constrain(
+          map(val1, 210, 600, 0, 180),
+          0, 180
+        );*/
+        //TODO: Uncomment this after base potentiometer is fixed
+        baseservo.write(90);
+
+        s1Val = constrain(
+          map(val2, 390, 850, 155, 65),
+          30, 150
+        );
+        j1Servo.writeSafe(s1Val);
+
+        s2Val = constrain(
+          map(val0, 570, 920, 50, 172),
+          62, 180
+        );
+        j2Servo.writeSafe(s2Val);
       break;
   }
-  
+
   // Serial.println(ryValue);
   // Serial.println(lyValue);
   // Serial.println(buttonstate);
