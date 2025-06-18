@@ -111,7 +111,6 @@ void setup() {
 
 void loop() {
   ControlMode newMode = readControlMode();
-  newMode = ArmApparatus;
 
   if (mode != newMode) {
     mode = newMode;
@@ -193,12 +192,11 @@ void loop() {
       break;
 
     case ArmApparatus:
-        /*int exoshoulder0 = constrain(
+        s0Val = constrain(
           map(val1, 210, 600, 0, 180),
           0, 180
-        );*/
-        //TODO: Uncomment this after base potentiometer is fixed
-        baseservo.write(90);
+        );
+        baseservo.write(s0Val);
 
         s1Val = constrain(
           map(val2, 390, 850, 155, 65),
