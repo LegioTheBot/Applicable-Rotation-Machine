@@ -38,14 +38,16 @@ def balance_white(img):
 
 
 # === Servo state ===
-base_angle = 90
-j1_angle = 90
-j2_angle = 90
+base_angle = 90.0
+j1_angle = 90.0
+j2_angle = 90.0
 grip = 90
 
 # === Servo gain tuning ===
 dx_gain = 0.08
 dy_gain = 0.1
+dx_limit = 0.1
+dy_limit = 0.1
 j2_base = 90
 distance_threshold_cm = 10
 
@@ -63,7 +65,7 @@ while True:
         print("Frame read failed")
         continue
 
-    frame = balance_white(frame)
+    #frame = balance_white(frame) # White balance breaks usb-cam image
     frame_count += 1
     height, width, _ = frame.shape
     center_frame_x = width // 2
@@ -112,9 +114,11 @@ while True:
         # === Servo control (pixel-based) ===
         tracking_tolerance = 10  # deadzone
         if abs(dx) > tracking_tolerance:
-            base_angle = clamp(base_angle - int(dx * dx_gain), 0, 180)
+            base_gain = clamp(float(dx * dx_gain), -dx_limit, dx_limit)
+            base_angle = clamp(base_angle - base_gain, 0.0, 180.0)
         if abs(dy) > tracking_tolerance:
-            j1_angle = clamp(j1_angle + int(-dy * dy_gain), 0, 180)
+            j1_gain = clamp(float(-dy * dy_gain), -dy_limit, dy_limit)
+            j1_angle = clamp(j1_angle + j1_gain, 0.0, 180.0)
 
         if distance and distance > distance_threshold_cm:
             j2_angle = clamp(j2_base + int((15 - distance) * 2.0), 60, 140)
