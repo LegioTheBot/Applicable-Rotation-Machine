@@ -1,5 +1,20 @@
 #include <Arduino.h>
-#include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+bool pcDebugControl = false; // false olursa sistem normal algoritmada çalışır. True olursa serial terminal üzerinden Servo n0 boşluk açı şeklinde kontrol edilebilir. ( 0 125)
+
+#define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
+
+#define NUM_SERVOS 4
+#define OMUZ   0
+#define DIRSEK 1
+#define BILEK  2
+#define EL     3
+
+#define PIN_SPEC0 7
+#define PIN_SPEC1 6
+#define PIN_BTN 5
 
 enum ControlMode : uint8_t {
   Gamepad,
@@ -8,80 +23,66 @@ enum ControlMode : uint8_t {
   None
 };
 
-const uint8_t pinSpec0 = 12;
-const uint8_t pinSpec1 = 13;
+// Servo limitleri
+const uint16_t servoMin[NUM_SERVOS] = {100, 210, 215, 110};
+const uint16_t servoMax[NUM_SERVOS] = {480, 400, 390, 470};
 
-class CustomServo : public Servo {
-  private:
-    float currentAngle;             // Use float for smoother sub-degree steps
-    unsigned long lastUpdate;
-    const float maxSpeed = 1.5;     // Max degrees per update
-    const int deadzone = 30;        // Joystick deadzone around center (514)
-    const int updateInterval = 15;  // Update every 15 ms (approx. 66Hz)
-    int minAngle = 0;
-    int maxAngle = 180;
+// Mevcut ve hedef pozisyonlar
+uint16_t curPos[NUM_SERVOS]    = {290, 400, 290, 110};
+uint16_t targetPos[NUM_SERVOS] = {290, 400, 290, 110};
 
-  public:
-    CustomServo() {
-      currentAngle = 90.0;
-      lastUpdate = 0;
-    }
+// Zamanlayıcılar
+unsigned long lastStepTime[NUM_SERVOS] = {0, 0, 0, 0};
+// buradan servoların hızı ayarlanıyor.
+const uint16_t stepDelay = 20;   // Her adım arası gecikme (ms)
+const uint8_t stepSize   = 3;    // Adım boyutu (pulse)
 
-    void attachAndInitialize(int pin) {
-      attach(pin);
-      write((int)currentAngle);
-    }
+unsigned long lastMoveTime = 0;
+const uint32_t moveInterval = 1000;
 
-    void angleLimits(int min, int max) {
-      minAngle = min;
-      maxAngle = max;
-    }
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-    void servospeed(int speedVal) {
-      unsigned long now = millis();
-      if (now - lastUpdate < updateInterval) return;
+uint8_t servonum = 0;
+unsigned long msControlLock = 0;
+const unsigned long msControlLockDuration = 500;
 
-      float delta = 0.0;
-      int center = 514;
+int idx1 = 0;
+int idx2 = 0;
+int idx3 = 0;
 
-      if (abs(speedVal - center) > deadzone) {
-        float range = (speedVal > center) ? (1023.0 - (center + deadzone)) : ((center - deadzone));
-        float offset = (float)(speedVal - center) / range;
-        delta = offset * maxSpeed; // Value between -maxSpeed to +maxSpeed
-      }
+// sisteme elekrik verdikten sonra öncelikle startPositon alt programı calışıp.
+//sonrasında aşagıdaki değerlerde servolar beklemeye girecek
+// pyton dan veri gelirse hareket edecek.
+int baseDeg = 90;
+int j1Deg   = 90;
+int j2Deg   = 90;
+int gripDeg = 90;
 
-      currentAngle += delta;
-      currentAngle = constrain(currentAngle, minAngle, maxAngle);
-      write((int)currentAngle);
+const int joystickDeadzone = 30;        // Joystick deadzone around center (514)
+unsigned long controlInterval = 0;
+int a0Val = 0;
+int a1Val = 0;
+int a2Val = 0;
 
-      lastUpdate = now;
-    }
+const uint8_t debounceTicks = 6;
+uint8_t btnVal = 0;
 
-    void writeSafe(uint8_t angle) {
-      currentAngle = constrain(angle, minAngle, maxAngle);
-      write((int)currentAngle);
-
-    }
-};
-
-int pinbut = 0;
-int buttonstate = 0;
-CustomServo baseservo;
-CustomServo j1Servo;
-CustomServo j2Servo;
-Servo gripperservo;
-
-ControlMode mode = None;
+String veri;
+uint8_t servoNo = 0;
+uint16_t gelenAci = 0.0;
+uint16_t gelenDeger = 0;
+ControlMode controlMode = None;
+ControlMode nextControlMode = None;
 
 ControlMode readControlMode() {
-  if (digitalRead(pinSpec0)) {
-    if (digitalRead(pinSpec1)) {
+  if (digitalRead(PIN_SPEC0)) {
+    if (digitalRead(PIN_SPEC1)) {
       return None;    // 11
     } else {
       return ArmApparatus;    // 10
     }
   } else {
-    if (digitalRead(pinSpec1)) {
+    if (digitalRead(PIN_SPEC1)) {
       return MiniArm;     // 01
     } else {
       return Gamepad; // 00
@@ -89,33 +90,135 @@ ControlMode readControlMode() {
   }
 }
 
-const int debounceDelay = 50;
-bool lastButtonState = HIGH;
-bool gripOpen = true;
-unsigned long lastDebounceTime = 0;
-
-void setup() {
-  Serial.begin(9600);
-  pinMode(pinSpec0, INPUT_PULLUP);
-  pinMode(pinSpec1, INPUT_PULLUP);
-
-  pinMode(pinbut, INPUT_PULLUP);
-  baseservo.attachAndInitialize(3);
-  j1Servo.attachAndInitialize(5);
-  j2Servo.attachAndInitialize(6);
-  gripperservo.attach(9);
-
-  j1Servo.angleLimits(55, 135);
-  j2Servo.angleLimits(65, 130);
+// Hareket için zaman geldi mi kontrolü
+bool shouldStep(uint8_t ch)
+{
+  return (millis() - lastStepTime[ch] >= stepDelay);
 }
 
-void loop() {
-  ControlMode newMode = readControlMode();
+// Servo bir adım yaklaştır
+void updateServo(uint8_t ch) {
+  if (curPos[ch] == targetPos[ch]) return;
+  if (!shouldStep(ch)) return;
 
-  if (mode != newMode) {
-    mode = newMode;
+  int dir = (targetPos[ch] > curPos[ch]) ? 1 : -1;
+  curPos[ch] += dir * stepSize;
+
+  // Sınır aşımını önle
+  if ((dir > 0 && curPos[ch] > targetPos[ch]) ||
+      (dir < 0 && curPos[ch] < targetPos[ch])) {
+    curPos[ch] = targetPos[ch];
+  }
+
+  pwm.setPWM(ch, 0, curPos[ch]);
+  lastStepTime[ch] = millis();
+}
+
+void startPosition()
+{
+  for (int i = 0; i < NUM_SERVOS; i++)
+  {
+    pwm.setPWM(i, 0, curPos[i]);
+  }
+  delay(2000); // başlangıc posizyonuna gelmesini için bekle
+}
+
+uint16_t mapDegreeToPulse(int degree)
+{
+  degree = constrain(degree, 0, 180);
+  return (uint16_t)((400L * degree) / 180 + 95);
+}
+
+void pcTerminalControl()
+{
+  if (Serial.available())
+  {
+    veri = Serial.readStringUntil('\n');      // Satırı oku
+    veri.trim();                              // Gereksiz boşlukları temizle
+
+    int boslukIndex = veri.indexOf(' ');
+    if (boslukIndex == -1) {
+      Serial.println("Hatalı giriş! Format: <servo_no> <aci>");
+      return;
+    }
+
+    String sNo  = veri.substring(0, boslukIndex);
+    String sAci = veri.substring(boslukIndex + 1);
+
+    servoNo  = sNo.toInt();
+    gelenAci = sAci.toInt();
+
+    if (servoNo > 15 || gelenAci < 0 || gelenAci > 180) {
+      Serial.println("Geçersiz servo numarası veya açı aralığı!");
+      return;
+    }
+
+    gelenDeger = mapDegreeToPulse(gelenAci);
+    pwm.setPWM(servoNo, 0, gelenDeger);
+
+    Serial.print("Servo ");
+    Serial.print(servoNo);
+    Serial.print(" → ");
+    Serial.print(gelenAci);
+    Serial.print(" derece = ");
+    Serial.print(gelenDeger);
+    Serial.println(" pulse");
+  }
+}
+
+void comm()
+{
+  if (Serial.available())
+  {
+    String input = Serial.readStringUntil('\n');
+    if (input.startsWith("#"))
+    {
+      input.remove(0, 1);
+      idx1 = input.indexOf(',');
+      idx2 = input.indexOf(',', idx1 + 1);
+      idx3 = input.indexOf(',', idx2 + 1);
+
+      baseDeg = input.substring(0, idx1).toInt();          // omuz
+      j1Deg   = input.substring(idx1 + 1, idx2).toInt();   // dirsek
+      j2Deg   = input.substring(idx2 + 1, idx3).toInt();   // bilek
+      gripDeg = input.substring(idx3 + 1).toInt();         // el
+    }
+  }
+}
+
+void servoControl()
+{
+  targetPos[OMUZ]   = mapDegreeToPulse(baseDeg);
+  targetPos[DIRSEK] = mapDegreeToPulse(j1Deg);
+  targetPos[BILEK]  = mapDegreeToPulse(j2Deg);
+  targetPos[EL]     = mapDegreeToPulse(gripDeg);
+
+  // Tüm servoları güncelle
+  for (int i = 0; i < NUM_SERVOS; i++)
+  {
+    updateServo(i);
+  }
+}
+
+bool controlModeChanged()
+{
+  nextControlMode = readControlMode();
+
+  if (nextControlMode == controlMode)
+  {
+    return false;
+  }
+  else if (msControlLock == 0)
+  {
+    msControlLock = millis() + msControlLockDuration;
+  }
+  else if (millis() > msControlLock)
+  {
+    controlMode = nextControlMode;
+    msControlLock = 0;
+
     Serial.print("New control method connected: ");
-    switch (mode) {
+    switch (controlMode) {
       case Gamepad:
           Serial.println("Gamepad");
         break;
@@ -132,118 +235,130 @@ void loop() {
           Serial.println("None");
         break;
     }
-
-    delay(2000);
-    return;
+    return true;
   }
 
-  int val0 = analogRead(A0);
-  int val1 = analogRead(A1);
-  int val2 = analogRead(A2);
+  return false;
+}
 
-  uint8_t s0Val = 0;
-  uint8_t s1Val = 0;
-  uint8_t s2Val = 0;
+// Additive rotation
+void servoJoystick(int* currentAngle, int speedVal) {
+  float delta = 0.0f;
+  int center = 514;
 
-  switch (mode) {
+  if (abs(speedVal - center) > joystickDeadzone) {
+    float range = (speedVal > center) ? (1023.0 - (center + joystickDeadzone)) : ((center - joystickDeadzone));
+    float offset = (float)(speedVal - center) / range;
+    delta = offset * 1.5f; // Value between -maxSpeed to +maxSpeed
+  }
+
+  *currentAngle += delta;
+}
+
+void useControlMethod()
+{
+  if (millis() < controlInterval){
+    return;
+  }
+  controlInterval = millis() + 20;
+
+  a0Val = analogRead(A0);
+  a1Val = analogRead(A1);
+  a2Val = analogRead(A2);
+
+  Serial.print(digitalRead(PIN_SPEC0));
+  Serial.print(" / ");
+  Serial.print(digitalRead(PIN_SPEC1));
+  Serial.print(" / ");
+  Serial.print(digitalRead(PIN_BTN));
+  Serial.print(" / ");
+  Serial.print(a0Val);
+  Serial.print(" / ");
+  Serial.print(a1Val);
+  Serial.print(" / ");
+  Serial.println(a2Val);
+
+  switch (controlMode)
+  {
     case None:
         Serial.print("No control method connected ");
-        Serial.print(digitalRead(pinSpec0));
-        Serial.print(" / ");
-        Serial.print(digitalRead(pinSpec1));
-        Serial.print(" / ");
-        Serial.print(digitalRead(pinbut));
-        Serial.print(" / ");
-        Serial.print(analogRead(A0));
-        Serial.print(" / ");
-        Serial.print(analogRead(A1));
-        Serial.print(" / ");
-        Serial.println(analogRead(A2));
-        delay(500);
         return;
 
     case Gamepad:
-        baseservo.servospeed(val2);
-        j1Servo.servospeed(val1);
-        j2Servo.servospeed(val0);
+        servoJoystick(&baseDeg, a0Val);
+        servoJoystick(&j1Deg, a1Val);
+        servoJoystick(&j2Deg, a2Val);
       break;
 
     case MiniArm:
-        s0Val = constrain(
-          map(val0, 210, 900, 0, 180),
+        baseDeg = constrain(
+          map(a0Val, 210, 900, 0, 180),
           0, 180
         );
-        baseservo.writeSafe(s0Val);
-        //int potj1 = val1;
-        //potj1 = constrain(potj1, 775, 1023);
-        //j1Servo.write(constrain(map(potj1, 775, 1023, 0, 180), 55, 135));
-
-        s1Val = constrain(
-          map(val1, 256, 560, 50, 172),
+        j1Deg = constrain(
+          map(a1Val, 256, 560, 50, 172),
           62, 180
         );
-        j1Servo.writeSafe(s1Val);
-
-        s2Val = constrain(
-          map(val2, 40, 530, 140, 40),
+        j2Deg = constrain(
+          map(a2Val, 40, 530, 140, 40),
           30, 150
         );
-        j2Servo.writeSafe(s2Val);
       break;
 
     case ArmApparatus:
-        s0Val = constrain(
-          map(val1, 210, 600, 0, 180),
+        baseDeg = constrain(
+          map(a1Val, 210, 600, 0, 180),
           0, 180
         );
-        baseservo.write(s0Val);
-
-        s1Val = constrain(
-          map(val2, 390, 850, 155, 65),
+        j1Deg = constrain(
+          map(a0Val, 390, 850, 155, 65),
           30, 150
         );
-        j1Servo.writeSafe(s1Val);
-
-        s2Val = constrain(
-          map(val0, 570, 920, 50, 172),
+        j2Deg = constrain(
+          map(a2Val, 570, 920, 50, 172),
           62, 180
         );
-        j2Servo.writeSafe(s2Val);
       break;
   }
 
-  // Serial.println(ryValue);
-  // Serial.println(lyValue);
-  // Serial.println(buttonstate);
-  // Serial.println(j1Servo.read());
-  // Serial.println(j2Servo.read());
-
-  Serial.print("base = ");
-  Serial.print(baseservo.read());
-  Serial.print("  j1 = ");
-  Serial.print(j1Servo.read());
-  Serial.print("  j2 = ");
-  Serial.print(j2Servo.read());
-
-  int reading = digitalRead(pinbut);
-  if (reading != lastButtonState)
-  {
-    lastDebounceTime = millis();
+  // Gripper happens after everything, we return early on None, so automatic and manual control don't conflict
+  btnVal = constrain(btnVal + (digitalRead(PIN_BTN) ? 1 : -1), 0, debounceTicks);
+  if (btnVal == debounceTicks && gripDeg != 90) {
+    gripDeg = 90;
   }
-  if (millis() - lastDebounceTime > debounceDelay)
-  {
-    if(reading != gripOpen)
-    {
-      gripOpen = reading;
-    }
-if (gripOpen == HIGH) {
-      gripperservo.write(0);
-      Serial.println("  grip = OPEN");
-    } else {
-      gripperservo.write(180);
-      Serial.println("  grip = CLOSED");
-    }
+  else if (btnVal == 0 && gripDeg != 170) {
+    gripDeg = 170;
   }
-  lastButtonState = reading;
-  delay(5);
+}
+
+
+void setup()
+{
+  Serial.begin(115200);
+
+  pwm.begin();
+
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
+
+  pinMode(PIN_SPEC0, INPUT_PULLUP);
+  pinMode(PIN_SPEC1, INPUT_PULLUP);
+  pinMode(PIN_BTN, INPUT_PULLUP);
+  delay(10);
+
+  startPosition();
+}
+
+void loop()
+{
+  if(pcDebugControl == true)
+  {
+    pcTerminalControl();
+  }
+  else if (controlModeChanged() == false)
+  {
+    useControlMethod();
+    comm();
+    servoControl();
+  }
 }
