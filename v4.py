@@ -5,17 +5,17 @@ import serial
 from ultralytics import YOLO
 
 # === Serial connection to Arduino ===
-arduino = serial.Serial("COM6", 115200, timeout=0.1, write_timeout=0.1)
+arduino = serial.Serial("COM9", 115200, timeout=0.1, write_timeout=0.1)
 
 # === Load YOLO model ===
-model = YOLO(r"D:\robotic-arm-cv\runs\detect\train\weights\best.pt")  # Update this path
+model = YOLO(r"C:\Users\AM Directive Node\Documents\PlatformIO\Projects\Applicable Rotation Machine - Laptop\object_detection\runs\detect\train\weights\best.pt")  # Update this path
 
 # === Real-world parameters for distance estimation ===
 KNOWN_WIDTH_CM = 2.30
 FOCAL_LENGTH = 525.84
 
 # === Video stream ===
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 # === Helper ===
 def clamp(val, min_val, max_val):
@@ -45,16 +45,16 @@ grip = 90
 
 # === Servo gain tuning ===
 dx_gain = 0.08
-dy_gain = 0.1
+dy_gain = 0.2
 dx_limit = 0.1
-dy_limit = 0.1
+dy_limit = 0.5
 j2_base = 90
 distance_threshold_cm = 10
 
 # === Stationary tracking logic ===
 last_pos = None
 stationary_since = None
-stationary_threshold = 3.0  # seconds
+stationary_threshold = 100.0  # seconds
 stationary_tolerance_px = 15
 
 frame_count = 0
@@ -65,11 +65,11 @@ while True:
         print("Frame read failed")
         continue
 
-    #frame = balance_white(frame) # White balance breaks usb-cam image
+    frame = balance_white(frame) # White balance breaks usb-cam image
     frame_count += 1
     height, width, _ = frame.shape
-    center_frame_x = width // 2
-    center_frame_y = height // 2
+    center_frame_x =width // 2
+    center_frame_y = (height // 2)
 
     # === Object detection ===
     results = model.predict(source=frame, imgsz=320, conf=0.5, verbose=False)
@@ -116,14 +116,17 @@ while True:
         if abs(dx) > tracking_tolerance:
             base_gain = clamp(float(dx * dx_gain), -dx_limit, dx_limit)
             base_angle = clamp(base_angle - base_gain, 0.0, 180.0)
-        if abs(dy) > tracking_tolerance:
-            j1_gain = clamp(float(-dy * dy_gain), -dy_limit, dy_limit)
-            j1_angle = clamp(j1_angle + j1_gain, 0.0, 180.0)
+        #if abs(dy) > tracking_tolerance:
+            #j1_gain = clamp(float(-dy * dy_gain), -dy_limit, dy_limit)
+            #1_angle = clamp(j1_angle - j1_gain, 20.0, 180.0)
 
-        if distance and distance > distance_threshold_cm:
-            j2_angle = clamp(j2_base + int((15 - distance) * 2.0), 60, 140)
-        else:
-            j2_angle = j2_base
+        if abs(dy) > tracking_tolerance:
+            j2_gain = clamp(float(dy * dy_gain), -dy_limit, dy_limit)
+            j2_angle = clamp(j2_angle + j2_gain, 0.0, 180.0)
+
+            #j2_angle = clamp(j2_base + float((dy) * 0.05), 0, 180)  #40, 140 are angle limits for j2 i found from old code, may be incorrect
+        #else:
+            #j2_angle = j2_base  #whoever added this else will be hung on a cross by me -efe
 
         # === Gripper control ===
         if abs(dx) < 5 and abs(dy) < 5 and distance and distance < distance_threshold_cm:

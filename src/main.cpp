@@ -357,7 +357,7 @@ void loop()
   }
   else if (controlModeChanged() == false)
   {
-    useControlMethod();
+    //useControlMethod();
     comm();
     servoControl();
   }
