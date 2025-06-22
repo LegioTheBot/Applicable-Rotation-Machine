@@ -90,6 +90,20 @@ ControlMode readControlMode() {
   }
 }
 
+void printReadings() {
+  Serial.print(digitalRead(PIN_SPEC0));
+  Serial.print(" / ");
+  Serial.print(digitalRead(PIN_SPEC1));
+  Serial.print(" / ");
+  Serial.print(digitalRead(PIN_BTN));
+  Serial.print(" / ");
+  Serial.print(a0Val);
+  Serial.print(" / ");
+  Serial.print(a1Val);
+  Serial.print(" / ");
+  Serial.println(a2Val);
+}
+
 // Hareket için zaman geldi mi kontrolü
 bool shouldStep(uint8_t ch)
 {
@@ -233,6 +247,11 @@ bool controlModeChanged()
 
       case None:
           Serial.println("None");
+          baseDeg = 90;
+          j1Deg = 90;
+          j2Deg = 90;
+          gripDeg = 90;
+          startPosition();
         break;
     }
     return true;
@@ -266,22 +285,9 @@ void useControlMethod()
   a1Val = analogRead(A1);
   a2Val = analogRead(A2);
 
-  Serial.print(digitalRead(PIN_SPEC0));
-  Serial.print(" / ");
-  Serial.print(digitalRead(PIN_SPEC1));
-  Serial.print(" / ");
-  Serial.print(digitalRead(PIN_BTN));
-  Serial.print(" / ");
-  Serial.print(a0Val);
-  Serial.print(" / ");
-  Serial.print(a1Val);
-  Serial.print(" / ");
-  Serial.println(a2Val);
-
   switch (controlMode)
   {
     case None:
-        Serial.print("No control method connected ");
         return;
 
     case Gamepad:
@@ -292,7 +298,7 @@ void useControlMethod()
 
     case MiniArm:
         baseDeg = constrain(
-          map(a0Val, 210, 900, 0, 180),
+          map(a2Val, 210, 900, 0, 180),
           0, 180
         );
         j1Deg = constrain(
@@ -300,14 +306,14 @@ void useControlMethod()
           62, 180
         );
         j2Deg = constrain(
-          map(a2Val, 40, 530, 140, 40),
+          map(a0Val, 40, 530, 140, 40),
           30, 150
         );
       break;
 
     case ArmApparatus:
         baseDeg = constrain(
-          map(a1Val, 210, 600, 0, 180),
+          map(a1Val, 600, 800, 0, 180),
           0, 180
         );
         j1Deg = constrain(
@@ -318,6 +324,7 @@ void useControlMethod()
           map(a2Val, 570, 920, 50, 172),
           62, 180
         );
+        printReadings();
       break;
   }
 
@@ -357,7 +364,7 @@ void loop()
   }
   else if (controlModeChanged() == false)
   {
-    //useControlMethod();
+    useControlMethod();
     comm();
     servoControl();
   }
