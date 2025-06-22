@@ -50,6 +50,8 @@ dx_limit = 0.1
 dy_limit = 0.5
 j2_base = 90
 distance_threshold_cm = 10
+close_range_cm = 12.0
+close_range_multiplier = 0.4
 
 # === Stationary tracking logic ===
 last_pos = None
@@ -113,15 +115,18 @@ while True:
 
         # === Servo control (pixel-based) ===
         tracking_tolerance = 10  # deadzone
+
+        gain_multiplier = 1.0 if distance > close_range_cm else close_range_multiplier
+
         if abs(dx) > tracking_tolerance:
-            base_gain = clamp(float(dx * dx_gain), -dx_limit, dx_limit)
+            base_gain = clamp(float(dx * dx_gain * gain_multiplier), -dx_limit, dx_limit)
             base_angle = clamp(base_angle - base_gain, 0.0, 180.0)
-        #if abs(dy) > tracking_tolerance:
-            #j1_gain = clamp(float(-dy * dy_gain), -dy_limit, dy_limit)
-            #1_angle = clamp(j1_angle - j1_gain, 20.0, 180.0)
+        # if abs(dy) > tracking_tolerance:
+        #     j1_gain = clamp(float(-dy * dy_gain), -dy_limit, dy_limit)
+        #     j1_angle = clamp(j1_angle - j1_gain, 20.0, 180.0)
 
         if abs(dy) > tracking_tolerance:
-            j2_gain = clamp(float(dy * dy_gain), -dy_limit, dy_limit)
+            j2_gain = clamp(float(dy * dy_gain * gain_multiplier), -dy_limit, dy_limit)
             j2_angle = clamp(j2_angle + j2_gain, 0.0, 180.0)
 
             #j2_angle = clamp(j2_base + float((dy) * 0.05), 0, 180)  #40, 140 are angle limits for j2 i found from old code, may be incorrect
