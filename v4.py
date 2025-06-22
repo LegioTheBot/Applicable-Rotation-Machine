@@ -15,7 +15,7 @@ model = YOLO(r"C:\Users\AM Directive Node\Documents\PlatformIO\Projects\Applicab
 CENTER_OFFSET_Y = -50 # Negative is up, positive is down
 KNOWN_WIDTH_CM = 2.30
 FOCAL_LENGTH = 525.84
-GRIPPER_OBJECT_Y_DISTANCE_CM = -2.0
+GRIPPER_OBJECT_Y_DISTANCE_CM = -1.3
 J2_LENGTH_CM = 12.7
 
 # === Video stream ===
@@ -48,10 +48,10 @@ j2_angle = 90.0
 grip = 90
 
 # === Servo gain tuning ===
-dx_gain = 0.08
+dx_gain = 0.1
 dy_gain = 0.2
-dx_limit = 0.1
-dy_limit = 0.5
+dx_limit = 0.07
+dy_limit = 0.1
 j2_base = 90
 distance_threshold_cm = 10
 close_range_cm = 12.0
@@ -60,8 +60,8 @@ close_range_multiplier = 0.4
 # === Stationary tracking logic ===
 last_pos = None
 stationary_since = None
-stationary_threshold = 100.0  # seconds
-stationary_tolerance_px = 15
+stationary_threshold = 5  # seconds
+stationary_tolerance_px = 8
 
 frame_count = 0
 
